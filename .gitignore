@@ -1,0 +1,20 @@
+# Pasta do Gradle e builds
+.gradle/
+build/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+out/
+
+# Arquivos de compilação
+*.class
+*.jar
+
+# Arquivos com credenciais (MUITO IMPORTANTE)
+gradle.properties
+local.properties
+
+# Log de erros
+core
+*.log
