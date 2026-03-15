@@ -1,0 +1,32 @@
+gui:
+  titles:
+    constructions: ":offset_-8::daily_rewards_ui:"
+    settings: "<dark_gray>Configuração da Obra</dark_gray>"
+
+  layouts:
+    constructions:
+      - "O O O O O O O O E"
+      - "O X X X X X X X O"
+      - "O X X X X X X X O"
+      - "O X X X X X X X O"
+      - "O X X X X X X X O"
+      - "< O O O O O O O >"
+    settings:
+      - "O O O O O O O O O"
+      - "O D O B O A O C O"
+      - "O O O O O O O O O"
+
+  buttons:
+    builds:
+      lojinha:
+        items_adder_id: "daily_rewards:icon_daily_gift_unclaimed"
+        name: "<gradient:#facc15:#eab308>Lojinha de Madeira</gradient>"
+        lore:
+          - ""
+          - "<gray>Perfeita para o spawn!</gray>"
+
+      casa_moderna:
+        material: "QUARTZ_BRICKS"
+        name: "<blue>Casa Moderna"
+        lore:
+          - "<gray>Requer muito quartzo!</gray>"
