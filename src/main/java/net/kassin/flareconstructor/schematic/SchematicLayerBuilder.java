@@ -9,6 +9,7 @@ import net.kassin.flareconstructor.schematic.blocks.Layers;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.block.data.BlockData;
 
 import java.util.*;
@@ -28,6 +29,7 @@ public final class SchematicLayerBuilder {
         for (int x = 0; x < dim.x(); x++) {
             for (int y = 0; y < dim.y(); y++) {
                 for (int z = 0; z < dim.z(); z++) {
+
                     BlockVector3 rel = BlockVector3.at(x, y, z);
                     BlockState state = clipboard.getBlock(clipMin.add(x, y, z));
 
@@ -41,10 +43,10 @@ public final class SchematicLayerBuilder {
                     int worldZ = origin.getBlockZ() + z;
 
                     phase2ByY.computeIfAbsent(y, k -> new Layers.Layer(new ArrayList<>()))
-                            .blocks().add(new BlockEntry(worldX, worldY, worldZ, state));
+                            .blocks().add(new BlockEntry(origin.getWorld(), worldX, worldY, worldZ, state));
 
                     phase1ByY.computeIfAbsent(y, k -> new Layers.Layer(new ArrayList<>()))
-                            .blocks().add(resolvePhase1Entry(rel, y, worldX, worldY, worldZ, mat, state, treeBlocks));
+                            .blocks().add(resolvePhase1Entry(rel, y, worldX, worldY, worldZ, mat, state, treeBlocks, origin.getWorld()));
                 }
             }
         }
@@ -59,16 +61,16 @@ public final class SchematicLayerBuilder {
             BlockVector3 rel, int y,
             int worldX, int worldY, int worldZ,
             Material mat, BlockState state,
-            Set<BlockVector3> treeBlocks) {
+            Set<BlockVector3> treeBlocks, World world) {
 
         boolean useReal = y == 0 || treeBlocks.contains(rel) || !isStructural(mat);
 
-        if (useReal) return new BlockEntry(worldX, worldY, worldZ, state);
+        if (useReal) return new BlockEntry(world, worldX, worldY, worldZ, state);
 
         Material phantomMat = toPhantomMaterial(mat);
         BlockState phantomState = createStateWithData(state, phantomMat);
 
-        return new BlockEntry(worldX, worldY, worldZ, phantomState);
+        return new BlockEntry(world, worldX, worldY, worldZ, phantomState);
     }
 
     private static BlockState createStateWithData(BlockState originalState, Material newMaterial) {
@@ -95,6 +97,7 @@ public final class SchematicLayerBuilder {
         if (mat == null || !mat.isSolid()) return false;
 
         String name = mat.name();
+
         return !name.contains("SAPLING") && !name.contains("FLOWER")
                 && !name.contains("GRASS") && !name.contains("FERN")
                 && !name.contains("MUSHROOM") && !name.contains("VINE")
@@ -115,4 +118,5 @@ public final class SchematicLayerBuilder {
         if (name.endsWith("_WALL")) return Material.BRICK_WALL;
         return Material.BRICKS;
     }
+
 }

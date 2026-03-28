@@ -7,6 +7,7 @@ import java.util.EnumMap;
 import java.util.Map;
 
 public class MenuRegistry {
+
     private final Map<MenuType, AbstractConstructionMenu> menus = new EnumMap<>(MenuType.class);
 
     public void register(MenuType type, AbstractConstructionMenu menu) {

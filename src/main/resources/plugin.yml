@@ -15,3 +15,5 @@ commands:
     description: Cancela a construção em andamento
     usage: /buildcancel [undo]
     permission: flareconstructor.build
+
+  squarepig:

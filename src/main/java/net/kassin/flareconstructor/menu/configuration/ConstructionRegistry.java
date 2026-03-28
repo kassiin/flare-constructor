@@ -29,4 +29,8 @@ public class ConstructionRegistry {
         return registeredBuilds.contains(id.toLowerCase());
     }
 
+    public String getBuild(String id) {
+        return registeredBuilds.contains(id.toLowerCase()) ? id : "";
+    }
+
 }

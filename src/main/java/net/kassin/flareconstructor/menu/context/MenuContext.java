@@ -17,4 +17,5 @@ public record MenuContext(Player player, String buildId, Location benchLocation,
     public static MenuContext create(Player player, BuildData data) {
         return new MenuContext(player, data.id(), data.benchLocation(), data);
     }
+
 }

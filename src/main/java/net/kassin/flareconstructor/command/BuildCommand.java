@@ -6,11 +6,7 @@ import net.flareplugins.core.utils.items.ItemBuilder;
 import net.kassin.flareconstructor.ConstructionMessage;
 import net.kassin.flareconstructor.FlareConstructorPlugin;
 import net.kassin.flareconstructor.menu.configuration.ConstructionRegistry;
-import net.kassin.flareconstructor.schematic.SchematicBuilder;
 import net.kassin.flareconstructor.schematic.SchematicCreator;
-import net.kassin.flareconstructor.schematic.section.BuildSession;
-import net.kassin.flareconstructor.utils.LocationUtils;
-import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -22,7 +18,6 @@ import org.bukkit.persistence.PersistentDataType;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
 public class BuildCommand implements TabExecutor {
 
@@ -75,25 +70,10 @@ public class BuildCommand implements TabExecutor {
                     e.printStackTrace();
                 }
                 return true;
-            }
-            default -> {
 
-                boolean registered = registry.isRegistered(subCommand);
-
-                if (!registered) return true;
-
-                Location origin = player.getLocation().clone();
-
-                BuildSession session = BuildSession.create(player.getUniqueId());
-                session.getViewers().add(player.getUniqueId());
-
-                int delayTicks = args.length >= 2 ? parseInt(args[1], 1) : 1;
-                int blocksPerTick = args.length >= 3 ? parseInt(args[2], 100) : 100;
-                int agents = args.length >= 4 ? parseInt(args[3], 1) : 1;
-
-                return true;
             }
         }
+        return true;
     }
 
     @Override

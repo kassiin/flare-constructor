@@ -7,9 +7,14 @@ import java.util.Map;
 
 public record BuildData(
         String id,
-        int delayTicks,
-        int blocksPerTick,
+        int blocksPerStrike,
         int agents,
         Location benchLocation,
-        Map<Material, Material> replacements // Add this field
-) {}
+        Map<Material, Material> replacements
+) {
+
+    @Override
+    public int blocksPerStrike() {
+        return blocksPerStrike;
+    }
+}

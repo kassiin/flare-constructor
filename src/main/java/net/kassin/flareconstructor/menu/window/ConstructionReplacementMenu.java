@@ -1,9 +1,10 @@
 package net.kassin.flareconstructor.menu.window;
 
 import com.cryptomorin.xseries.XMaterial;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.sk89q.worldedit.extent.clipboard.Clipboard;
 import net.flareplugins.core.FlareCorePlugin;
-import net.flareplugins.core.async.FlareCoreAsyncExecutor;
 import net.flareplugins.core.utils.items.ItemBuilder;
 import net.flareplugins.core.utils.window.PaginatedWindow;
 import net.flareplugins.core.utils.window.WindowButton;
@@ -22,14 +23,20 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 public class ConstructionReplacementMenu extends AbstractConstructionMenu {
 
-    private final Map<UUID, BuildData> editingData = new ConcurrentHashMap<>();
-    private final Map<String, List<Material>> materialCache = new ConcurrentHashMap<>();
-    private final Map<UUID, Material> selectingMaterial = new ConcurrentHashMap<>();
+    private final Cache<UUID, BuildData> editingData = Caffeine.newBuilder()
+            .expireAfterAccess(10, TimeUnit.MINUTES).build();
+
+    private final Cache<UUID, Material> selectingMaterial = Caffeine.newBuilder()
+            .expireAfterAccess(10, TimeUnit.MINUTES).build();
+
+    private final Cache<String, List<Material>> materialCache = Caffeine.newBuilder()
+            .expireAfterAccess(1, TimeUnit.HOURS).build();
+
     private final Set<UUID> refreshing = ConcurrentHashMap.newKeySet();
 
     public ConstructionReplacementMenu(ConstructorInitializer initializer) {
@@ -44,14 +51,15 @@ public class ConstructionReplacementMenu extends AbstractConstructionMenu {
         if (data == null) return;
 
         editingData.put(player.getUniqueId(), data);
-        selectingMaterial.remove(player.getUniqueId());
+        selectingMaterial.invalidate(player.getUniqueId());
 
-        if (materialCache.containsKey(data.id())) {
+        List<Material> cachedMats = materialCache.getIfPresent(data.id());
+
+        if (cachedMats != null) {
             render(player, true);
         } else {
-
             FlareCorePlugin.getAPI().getAsyncAPI().run(() -> {
-                Clipboard clipboard = SchematicLoader.load(FlareConstructorPlugin.getInstance(), data.id());
+                Clipboard clipboard = schematicLoader.load(data.id());
                 List<Material> mats = SchematicRemapper.getUniqueMaterials(clipboard);
                 materialCache.put(data.id(), mats);
 
@@ -60,9 +68,7 @@ public class ConstructionReplacementMenu extends AbstractConstructionMenu {
                 );
             }).exceptionally(ex -> {
                 FlareConstructorPlugin.getInstance().getServer().getScheduler().runTask(
-                        FlareConstructorPlugin.getInstance(), () -> {
-                            ex.printStackTrace();
-                        }
+                        FlareConstructorPlugin.getInstance(), ex::getMessage
                 );
                 return null;
             });
@@ -74,18 +80,18 @@ public class ConstructionReplacementMenu extends AbstractConstructionMenu {
     }
 
     public boolean isSelecting(Player player) {
-        return selectingMaterial.containsKey(player.getUniqueId());
+        return selectingMaterial.asMap().containsKey(player.getUniqueId());
     }
 
     public void cancelSelection(Player player) {
-        selectingMaterial.remove(player.getUniqueId());
+        selectingMaterial.invalidate(player.getUniqueId());
     }
 
     public void applyReplacement(Player player, Material newMaterial) {
-        Material oldMaterial = selectingMaterial.remove(player.getUniqueId());
+        Material oldMaterial = selectingMaterial.asMap().remove(player.getUniqueId());
         if (oldMaterial == null) return;
 
-        BuildData currentData = editingData.get(player.getUniqueId());
+        BuildData currentData = editingData.getIfPresent(player.getUniqueId());
         if (currentData == null) return;
 
         Map<Material, Material> newReplacements = new HashMap<>(currentData.replacements());
@@ -93,8 +99,7 @@ public class ConstructionReplacementMenu extends AbstractConstructionMenu {
 
         BuildData newData = new BuildData(
                 currentData.id(),
-                currentData.delayTicks(),
-                currentData.blocksPerTick(),
+                currentData.blocksPerStrike(),
                 currentData.agents(),
                 currentData.benchLocation(),
                 newReplacements
@@ -109,7 +114,7 @@ public class ConstructionReplacementMenu extends AbstractConstructionMenu {
     }
 
     private void render(Player player, boolean forceNew) {
-        BuildData currentData = editingData.get(player.getUniqueId());
+        BuildData currentData = editingData.getIfPresent(player.getUniqueId());
         if (currentData == null) return;
 
         ReplacementMenuSettings cfg = guiConfig.getReplacementSettings();
@@ -134,14 +139,17 @@ public class ConstructionReplacementMenu extends AbstractConstructionMenu {
                 .build();
 
         window.setSpecialButton('E', new WindowButton(backIcon).addAction((click, p) -> {
-            selectingMaterial.remove(p.getUniqueId());
+            selectingMaterial.invalidate(p.getUniqueId());
             ConstructionSettingsMenu settings = menuRegistry.get(MenuType.SETTINGS);
             settings.open(MenuContext.create(p, currentData));
         }));
 
         List<WindowButton> buttons = new ArrayList<>();
-        List<Material> schematicMats = materialCache.getOrDefault(currentData.id(), Collections.emptyList());
-        Material currentlySelecting = selectingMaterial.get(player.getUniqueId());
+
+        List<Material> schematicMats = materialCache.getIfPresent(currentData.id());
+        if (schematicMats == null) schematicMats = Collections.emptyList();
+
+        Material currentlySelecting = selectingMaterial.getIfPresent(player.getUniqueId());
 
         for (Material mat : schematicMats) {
             Material replacedWith = currentData.replacements().getOrDefault(mat, mat);
@@ -168,7 +176,7 @@ public class ConstructionReplacementMenu extends AbstractConstructionMenu {
 
             buttons.add(new WindowButton(icon).addAction((click, p) -> {
                 if (isSelected) {
-                    selectingMaterial.remove(p.getUniqueId());
+                    selectingMaterial.invalidate(p.getUniqueId());
                 } else {
                     selectingMaterial.put(p.getUniqueId(), mat);
                 }

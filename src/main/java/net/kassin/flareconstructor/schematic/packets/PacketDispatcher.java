@@ -9,7 +9,7 @@ import com.sk89q.worldedit.bukkit.BukkitAdapter;
 import com.sk89q.worldedit.world.block.BlockState;
 import io.github.retrooper.packetevents.util.SpigotConversionUtil;
 import net.kassin.flareconstructor.schematic.blocks.BlockEntry;
-import net.kassin.flareconstructor.schematic.section.BuildSession;
+import net.kassin.flareconstructor.schematic.session.ConstructionProject;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -41,7 +41,7 @@ public final class PacketDispatcher {
                         decodeSectionKey(key), false, blockList.toArray(new EncodedBlock[0]))));
     }
 
-    public static void sendCatchUp(Player player, BuildSession session) {
+    public static void sendCatchUp(Player player, ConstructionProject session) {
         Map<Long, BlockState> snapshot = session.getVisualSnapshotCopy();
         if (snapshot.isEmpty()) return;
 
@@ -51,7 +51,7 @@ public final class PacketDispatcher {
         sendToUser(user, buildSectionMapFromSnapshot(snapshot));
     }
 
-    public static void clearVisuals(Player player, BuildSession session) {
+    public static void clearVisuals(Player player, ConstructionProject session) {
         Map<Long, BlockState> snapshot = session.getVisualSnapshotCopy();
         if (snapshot.isEmpty()) return;
 
@@ -65,7 +65,7 @@ public final class PacketDispatcher {
     }
 
     public static Map<Long, List<EncodedBlock>> buildSectionMap(
-            List<BlockEntry> entries, int from, int to, BuildSession session) {
+            List<BlockEntry> entries, int from, int to, ConstructionProject session) {
 
         Map<Long, List<EncodedBlock>> bySection = new LinkedHashMap<>();
 
@@ -91,9 +91,9 @@ public final class PacketDispatcher {
         Map<Long, List<EncodedBlock>> bySection = new LinkedHashMap<>();
 
         for (Map.Entry<Long, BlockState> e : snapshot.entrySet()) {
-            int x = BuildSession.unpackX(e.getKey());
-            int y = BuildSession.unpackY(e.getKey());
-            int z = BuildSession.unpackZ(e.getKey());
+            int x = ConstructionProject.unpackX(e.getKey());
+            int y = ConstructionProject.unpackY(e.getKey());
+            int z = ConstructionProject.unpackZ(e.getKey());
 
             Material mat = BukkitAdapter.adapt(e.getValue().getBlockType());
             if (mat == null || mat == Material.AIR) continue;
@@ -115,9 +115,9 @@ public final class PacketDispatcher {
         Map<Long, List<EncodedBlock>> bySection = new LinkedHashMap<>();
 
         for (long posKey : snapshot.keySet()) {
-            int x = BuildSession.unpackX(posKey);
-            int y = BuildSession.unpackY(posKey);
-            int z = BuildSession.unpackZ(posKey);
+            int x = ConstructionProject.unpackX(posKey);
+            int y = ConstructionProject.unpackY(posKey);
+            int z = ConstructionProject.unpackZ(posKey);
 
             int globalId = SpigotConversionUtil
                     .fromBukkitBlockData(world.getBlockAt(x, y, z).getBlockData())

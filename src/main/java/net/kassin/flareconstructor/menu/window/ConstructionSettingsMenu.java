@@ -1,6 +1,9 @@
 package net.kassin.flareconstructor.menu.window;
 
 import com.cryptomorin.xseries.XMaterial;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import net.flareplugins.core.FlareCorePlugin;
 import net.flareplugins.core.utils.items.ItemBuilder;
 import net.flareplugins.core.utils.window.PaginatedWindow;
 import net.flareplugins.core.utils.window.WindowButton;
@@ -11,27 +14,35 @@ import net.kassin.flareconstructor.menu.configuration.BuildData;
 import net.kassin.flareconstructor.menu.configuration.settings.SettingsMenuSettings;
 import net.kassin.flareconstructor.menu.context.MenuContext;
 import net.kassin.flareconstructor.menu.type.MenuType;
-import net.kassin.flareconstructor.schematic.SchematicBuilder;
-import net.kassin.flareconstructor.schematic.section.BuildSession;
-import net.kassin.flareconstructor.utils.LocationUtils;
+import net.kassin.flareconstructor.orchestrator.BuildOrchestrator;
+import net.kassin.flareconstructor.orchestrator.ConstructionContext;
+import net.kassin.flareconstructor.schematic.SchematicAnalyzer;
+import net.kassin.flareconstructor.schematic.session.ConstructionProject;
+import net.kassin.flareconstructor.schematic.session.ProjectRegistry;
+import net.kassin.flareconstructor.utils.TimeUtils;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.util.Vector;
 
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 public class ConstructionSettingsMenu extends AbstractConstructionMenu {
 
-    private final Map<UUID, BuildData> editingData = new ConcurrentHashMap<>();
+    private final Cache<UUID, BuildData> editingData = Caffeine.newBuilder()
+            .expireAfterAccess(10, TimeUnit.MINUTES)
+            .build();
 
-    public ConstructionSettingsMenu(ConstructorInitializer initializer) {
+    private final ProjectRegistry projectRegistry;
+
+    public ConstructionSettingsMenu(ConstructorInitializer initializer, ProjectRegistry projectRegistry) {
         super(initializer);
+        this.projectRegistry = projectRegistry;
     }
 
     @Override
@@ -41,9 +52,12 @@ public class ConstructionSettingsMenu extends AbstractConstructionMenu {
         if (context.data() != null) {
             editingData.put(player.getUniqueId(), context.data());
         } else if (context.buildId() != null && context.benchLocation() != null) {
-            BuildData existing = editingData.get(player.getUniqueId());
-            if (existing == null || !existing.id().equals(context.buildId()) || !existing.benchLocation().equals(context.benchLocation())) {
-                editingData.put(player.getUniqueId(), new BuildData(context.buildId(), 1, 100, 1, context.benchLocation(), new HashMap<>()));
+            BuildData existing = editingData.getIfPresent(player.getUniqueId());
+            if (existing == null ||
+                    !existing.id().equals(context.buildId()) ||
+                    !existing.benchLocation().equals(context.benchLocation())) {
+                editingData.put(player.getUniqueId(), new BuildData(context.buildId(),
+                        1, 1, context.benchLocation(), new HashMap<>()));
             }
         }
 
@@ -55,118 +69,139 @@ public class ConstructionSettingsMenu extends AbstractConstructionMenu {
     }
 
     private void render(Player player) {
-        BuildData currentData = editingData.get(player.getUniqueId());
+
+        BuildData currentData = editingData.getIfPresent(player.getUniqueId());
+
         if (currentData == null) return;
 
-        SettingsMenuSettings cfg = guiConfig.getSettingsMenuSettings();
+        FlareCorePlugin.getAPI().getAsyncAPI().supply(() ->
+                schematicAnalyzer.getStats(currentData.id())
+        ).exceptionally(ex -> {
+            FlareConstructorPlugin.getInstance().getLogger().severe("Falha ao analisar blocos da casa " + currentData.id());
+            return new SchematicAnalyzer.SchematicStats(1, 0);
+        }).thenAccept(stats -> {
 
-        PaginatedWindow window = new PaginatedWindow(
-                WindowSize.ROW_6,
-                cfg.title(),
-                cfg.layout(),
-                guiConfig.getPaginationTheme()
-        );
+            Bukkit.getScheduler().runTask(FlareConstructorPlugin.getInstance(), () -> {
 
-        window.setSpecialButton('O', new WindowButton(new ItemStack(Material.AIR)));
+                SettingsMenuSettings cfg = guiConfig.getSettingsMenuSettings();
 
-        ItemStack delayIcon = ItemBuilder.builder(XMaterial.CLOCK)
-                .nameComponent(message.process("<yellow>Delay (Ticks): <green>" + currentData.delayTicks()))
-                .loreComponent(
-                        List.of(message.process(""),
-                                message.process("<green>Botão Esquerdo para Aumentar (+1)"),
-                                message.process("<red>Botão Direito para Diminuir (-1)")
-                        )
-                ).build();
+                int totalBlocks = stats.totalBlocks();
+                int baseBlocks = stats.baseBlocks();
 
-        window.setSpecialButton('D', new WindowButton(delayIcon).addAction((click, p) -> {
-            int newVal = currentData.delayTicks();
-            if (click.isLeftClick()) newVal++;
-            else if (click.isRightClick()) newVal = Math.max(1, newVal - 1);
-            updateAndRender(p, new BuildData(currentData.id(), newVal, currentData.blocksPerTick(), currentData.agents(), currentData.benchLocation(), currentData.replacements()));
-        }));
+                PaginatedWindow window = new PaginatedWindow(
+                        WindowSize.ROW_6,
+                        cfg.title(),
+                        cfg.layout(),
+                        guiConfig.getPaginationTheme()
+                );
 
-        ItemStack blocksIcon = ItemBuilder.builder(XMaterial.BRICKS)
-                .nameComponent(message.process("<yellow>Blocos por Tick: <green>" + currentData.blocksPerTick()))
-                .loreComponent(
-                        List.of(
+                window.setSpecialButton('O', new WindowButton(new ItemStack(Material.AIR)));
+
+                ItemStack blocksIcon = ItemBuilder.builder(XMaterial.BRICKS)
+                        .nameComponent(message.process("<yellow>Blocos por Marretada: <green>" + currentData.blocksPerStrike()))
+                        .loreComponent(
+                                List.of(
+                                        message.process(""),
+                                        message.process("<green>Botão Esquerdo para Aumentar (+1)"),
+                                        message.process("<red>Botão Direito para Diminuir (-1)"))
+                        ).build();
+
+                window.setSpecialButton('B', new WindowButton(blocksIcon).addAction((click, p) -> {
+                    int newVal = currentData.blocksPerStrike();
+                    if (click.isLeftClick()) newVal = Math.min(10, newVal + 1);
+                    else if (click.isRightClick()) newVal = Math.max(1, newVal - 1);
+                    updateAndRender(p, new BuildData(currentData.id(), newVal, currentData.agents(), currentData.benchLocation(), currentData.replacements()));
+                }));
+
+                ItemStack agentsIcon = ItemBuilder.builder(XMaterial.VILLAGER_SPAWN_EGG)
+                        .nameComponent(message.process("<yellow>Quantidade de Agentes: <green>" + currentData.agents()))
+                        .loreComponent(List.of(
                                 message.process(""),
-                                message.process("<green>Botão Esquerdo para Aumentar (+10)"),
-                                message.process("<red>Botão Direito para Diminuir (-10)"))
-                ).build();
+                                message.process("<green>Botão Esquerdo para Aumentar (+1)"),
+                                message.process("<red>Botão Direito para Diminuir (-1)"))
+                        ).build();
 
-        window.setSpecialButton('B', new WindowButton(blocksIcon).addAction((click, p) -> {
-            int newVal = currentData.blocksPerTick();
-            if (click.isLeftClick()) newVal += 10;
-            else if (click.isRightClick()) newVal = Math.max(1, newVal - 10);
-            updateAndRender(p, new BuildData(currentData.id(), currentData.delayTicks(), newVal, currentData.agents(), currentData.benchLocation(), currentData.replacements()));
-        }));
+                window.setSpecialButton('A', new WindowButton(agentsIcon).addAction((click, p) -> {
+                    int newVal = currentData.agents();
+                    if (click.isLeftClick()) newVal = Math.min(5, newVal + 1);
+                    else if (click.isRightClick()) newVal = Math.max(1, newVal - 1);
 
-        ItemStack agentsIcon = ItemBuilder.builder(XMaterial.VILLAGER_SPAWN_EGG)
-                .nameComponent(message.process("<yellow>Quantidade de Agentes: <green>" + currentData.agents()))
-                .loreComponent(List.of(
-                        message.process(""),
-                        message.process("<green>Botão Esquerdo para Aumentar (+1)"),
-                        message.process("<red>Botão Direito para Diminuir (-1)"))
-                ).build();
+                    updateAndRender(p, new BuildData(currentData.id(),
+                            currentData.blocksPerStrike(),
+                            newVal,
+                            currentData.benchLocation(),
+                            currentData.replacements()));
+                }));
 
-        window.setSpecialButton('A', new WindowButton(agentsIcon).addAction((click, p) -> {
-            int newVal = currentData.agents();
-            if (click.isLeftClick()) newVal = Math.min(5, newVal + 1);
-            else if (click.isRightClick()) newVal = Math.max(1, newVal - 1);
-            updateAndRender(p, new BuildData(currentData.id(), currentData.delayTicks(), currentData.blocksPerTick(), newVal, currentData.benchLocation(), currentData.replacements()));
-        }));
+                ItemStack replaceIcon = ItemBuilder.builder(XMaterial.CRAFTING_TABLE)
+                        .nameComponent(message.process("<yellow>Substituir Materiais"))
+                        .loreComponent(List.of(message.process("<gray>Clique para alterar os blocos.")))
+                        .build();
 
-        ItemStack replaceIcon = ItemBuilder.builder(XMaterial.CRAFTING_TABLE)
-                .nameComponent(message.process("<yellow>Substituir Materiais"))
-                .loreComponent(List.of(message.process("<gray>Clique para alterar os blocos.")))
-                .build();
+                window.setSpecialButton('R', new WindowButton(replaceIcon).addAction((click, p) -> {
+                    ConstructionReplacementMenu replaceMenu = menuRegistry.get(MenuType.REPLACEMENT);
+                    replaceMenu.open(MenuContext.create(p, currentData));
+                }));
 
-        window.setSpecialButton('R', new WindowButton(replaceIcon).addAction((click, p) -> {
-            ConstructionReplacementMenu replaceMenu = menuRegistry.get(MenuType.REPLACEMENT);
-            replaceMenu.open(MenuContext.create(p, currentData));
-        }));
+                String estimatedTime = TimeUtils.getEstimatedTime(totalBlocks, baseBlocks,
+                        currentData.agents(), currentData.blocksPerStrike());
 
-        ItemStack confirmIcon = ItemBuilder.builder(XMaterial.EMERALD_BLOCK)
-                .nameComponent(message.process("<green><bold>CONFIRMAR CONSTRUÇÃO"))
-                .loreComponent(List.of(message.process("<gray>Clique para iniciar a obra!")))
-                .build();
+                ItemStack confirmIcon = ItemBuilder.builder(XMaterial.EMERALD_BLOCK)
+                        .nameComponent(message.process("<green><bold>CONFIRMAR CONSTRUÇÃO"))
+                        .loreComponent(List.of(
+                                message.process("<gray>Clique para iniciar a obra!"),
+                                message.process(""),
+                                message.process("<yellow>Blocos Totais: <white>" + totalBlocks),
+                                message.process("<yellow>Tempo estimado: <white>" + estimatedTime)
+                        ))
+                        .build();
 
-        window.setSpecialButton('C', new WindowButton(confirmIcon).addAction((click, p) -> {
-            p.closeInventory();
-            editingData.remove(p.getUniqueId());
+                window.setSpecialButton('C', new WindowButton(confirmIcon).addAction((click, p) -> {
+                    p.closeInventory();
+                    editingData.invalidate(p.getUniqueId());
 
-            Location origin = LocationUtils.getGridAlignedOrigin(currentData.benchLocation(), 5);
+                    Location benchLocation = currentData.benchLocation();
+                    Location reference = benchLocation.clone();
+                    reference.setPitch(0f);
+                    reference.setYaw(reference.getYaw() + 90f);
 
-            BuildSession session = BuildSession.create(p.getUniqueId());
-            session.getViewers().add(p.getUniqueId());
+                    Vector directionVector = reference.getDirection().normalize();
 
-            p.sendMessage("§e[Debug] Iniciando pipeline de construção...");
+                    Location houseLocation = benchLocation.clone().add(directionVector.clone().multiply(5));
+                    Location pathFinderTarget = houseLocation.clone().add(directionVector.clone().multiply(5));
 
-            CompletableFuture<Void> future = SchematicBuilder.build(
-                    FlareConstructorPlugin.getInstance(),
-                    currentData,
-                    origin,
-                    session,
-                    () -> p.sendMessage("§a[Debug] Fase 1 (Visual) concluída!"),
-                    () -> {
-                        p.sendMessage("§a[Debug] Construção totalmente finalizada!");
-                        BuildSession.remove(p.getUniqueId());
-                    },
-                    err -> {
-                        p.sendMessage("§c[ERRO GRAVE] Falha na construção: " + err);
-                        System.out.println("[FlareConstructor] Erro no SchematicBuilder: " + err);
-                        BuildSession.remove(p.getUniqueId());
-                    }
-            );
+                    ConstructionProject session = projectRegistry.createProject(p.getUniqueId());
+                    session.getViewers().add(p.getUniqueId());
 
-            session.setFuture(future);
-        }));
+                    p.sendMessage("§e[Debug] Iniciando pipeline de construção...");
 
-        window.viewPaginated(player);
+                    ConstructionContext context = new ConstructionContext(
+                            currentData,
+                            benchLocation,
+                            houseLocation,
+                            pathFinderTarget,
+                            session,
+                            p);
+
+                    BuildOrchestrator orchestrator = new BuildOrchestrator(
+                            FlareConstructorPlugin.getInstance(),
+                            projectRegistry,
+                            schematicLoader,
+                            worksiteTracker
+                    );
+
+                    orchestrator.start(context);
+                }));
+
+                window.viewPaginated(player);
+
+            });
+        });
     }
 
     private void updateAndRender(Player player, BuildData newData) {
         editingData.put(player.getUniqueId(), newData);
         render(player);
     }
+
 }

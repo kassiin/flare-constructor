@@ -2,7 +2,7 @@ package net.kassin.flareconstructor.listener;
 
 import net.flareplugins.core.FlareCorePlugin;
 import net.flareplugins.core.api.CustomModelProvider;
-import net.kassin.flareconstructor.EntityPlacementValidator;
+import net.kassin.flareconstructor.utils.EntityPlacementValidator;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.block.Block;

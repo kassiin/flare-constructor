@@ -1,6 +1,7 @@
 package net.kassin.flareconstructor.menu.window;
 
 import net.flareplugins.core.FlareCorePlugin;
+import net.flareplugins.core.api.FlareItemFactory;
 import net.flareplugins.core.hook.itemhook.ItemFactory;
 import net.flareplugins.core.utils.window.PaginatedWindow;
 import net.flareplugins.core.utils.window.WindowButton;
@@ -25,9 +26,10 @@ public class ConstructionMainMenu extends AbstractConstructionMenu {
 
     @Override
     public void open(MenuContext context) {
+
         Player player = context.player();
         Location benchLocation = context.benchLocation();
-        ItemFactory itemFactory = FlareCorePlugin.getAPI().getItemFactory();
+        FlareItemFactory itemFactory = FlareCorePlugin.getAPI().getItemFactory();
 
         MainMenuSettings cfg = guiConfig.getMainSettings();
 
@@ -50,6 +52,7 @@ public class ConstructionMainMenu extends AbstractConstructionMenu {
                 AbstractConstructionMenu settingsMenu = menuRegistry.get(MenuType.SETTINGS);
                 settingsMenu.open(MenuContext.create(p, id, benchLocation));
             }));
+
         }
         paginatedWindow.setItems(buttons);
         paginatedWindow.viewPaginated(player);
