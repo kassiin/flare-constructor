@@ -16,9 +16,12 @@ import net.kassin.flareconstructor.menu.context.MenuContext;
 import net.kassin.flareconstructor.menu.type.MenuType;
 import net.kassin.flareconstructor.orchestrator.BuildOrchestrator;
 import net.kassin.flareconstructor.orchestrator.ConstructionContext;
+import net.kassin.flareconstructor.protection.WorksiteBounds;
 import net.kassin.flareconstructor.schematic.SchematicAnalyzer;
 import net.kassin.flareconstructor.schematic.session.ConstructionProject;
 import net.kassin.flareconstructor.schematic.session.ProjectRegistry;
+import net.kassin.flareconstructor.schematic.tracking.ProjectSpatialTracker;
+import net.kassin.flareconstructor.utils.LocationUtils;
 import net.kassin.flareconstructor.utils.TimeUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -39,10 +42,14 @@ public class ConstructionSettingsMenu extends AbstractConstructionMenu {
             .build();
 
     private final ProjectRegistry projectRegistry;
+    private final ProjectSpatialTracker projectSpatialTracker;
 
-    public ConstructionSettingsMenu(ConstructorInitializer initializer, ProjectRegistry projectRegistry) {
+    public ConstructionSettingsMenu(ConstructorInitializer initializer,
+                                    ProjectRegistry projectRegistry,
+                                    ProjectSpatialTracker projectSpatialTracker) {
         super(initializer);
         this.projectRegistry = projectRegistry;
+        this.projectSpatialTracker = projectSpatialTracker;
     }
 
     @Override
@@ -78,8 +85,13 @@ public class ConstructionSettingsMenu extends AbstractConstructionMenu {
                 schematicAnalyzer.getStats(currentData.id())
         ).exceptionally(ex -> {
             FlareConstructorPlugin.getInstance().getLogger().severe("Falha ao analisar blocos da casa " + currentData.id());
-            return new SchematicAnalyzer.SchematicStats(1, 0);
+            return new SchematicAnalyzer.SchematicStats(1, 0, 0, 0, 0);
         }).thenAccept(stats -> {
+
+            if (!stats.validStats()) {
+                message.sendChat(player, "<red>nao foi possivel calcular os blocos dessa construçao.");
+                return;
+            }
 
             Bukkit.getScheduler().runTask(FlareConstructorPlugin.getInstance(), () -> {
 
@@ -157,40 +169,7 @@ public class ConstructionSettingsMenu extends AbstractConstructionMenu {
                         .build();
 
                 window.setSpecialButton('C', new WindowButton(confirmIcon).addAction((click, p) -> {
-                    p.closeInventory();
-                    editingData.invalidate(p.getUniqueId());
-
-                    Location benchLocation = currentData.benchLocation();
-                    Location reference = benchLocation.clone();
-                    reference.setPitch(0f);
-                    reference.setYaw(reference.getYaw() + 90f);
-
-                    Vector directionVector = reference.getDirection().normalize();
-
-                    Location houseLocation = benchLocation.clone().add(directionVector.clone().multiply(5));
-                    Location pathFinderTarget = houseLocation.clone().add(directionVector.clone().multiply(5));
-
-                    ConstructionProject session = projectRegistry.createProject(p.getUniqueId());
-                    session.getViewers().add(p.getUniqueId());
-
-                    p.sendMessage("§e[Debug] Iniciando pipeline de construção...");
-
-                    ConstructionContext context = new ConstructionContext(
-                            currentData,
-                            benchLocation,
-                            houseLocation,
-                            pathFinderTarget,
-                            session,
-                            p);
-
-                    BuildOrchestrator orchestrator = new BuildOrchestrator(
-                            FlareConstructorPlugin.getInstance(),
-                            projectRegistry,
-                            schematicLoader,
-                            worksiteTracker
-                    );
-
-                    orchestrator.start(context);
+                    startConstructionProcess(p, currentData, stats);
                 }));
 
                 window.viewPaginated(player);
@@ -202,6 +181,93 @@ public class ConstructionSettingsMenu extends AbstractConstructionMenu {
     private void updateAndRender(Player player, BuildData newData) {
         editingData.put(player.getUniqueId(), newData);
         render(player);
+    }
+
+    private void startConstructionProcess(Player player, BuildData data, SchematicAnalyzer.SchematicStats stats) {
+        player.closeInventory();
+        editingData.invalidate(player.getUniqueId());
+
+        Location benchLocation = data.benchLocation();
+
+        Location reference = benchLocation.clone();
+        reference.setPitch(0f);
+        reference.setYaw(reference.getYaw() + 90f);
+
+        Vector directionVector = reference.getDirection().normalize();
+
+        Location houseLocation = benchLocation.clone().add(directionVector.clone().multiply(5));
+        Location pathFinderTarget = houseLocation.clone().add(directionVector.clone().multiply(5));
+
+        Location pasteCorner = benchLocation.getBlock().getLocation();
+
+        int gap = 10;
+
+        switch (LocationUtils.getCardinal(benchLocation.getYaw())) {
+            case WEST -> pasteCorner.add(-gap, 0, 0);
+            case NORTH -> pasteCorner.add(0, 0, -gap);
+            case EAST -> pasteCorner.add(gap, 0, 0);
+            case SOUTH -> pasteCorner.add(0, 0, gap);
+        }
+
+        WorksiteBounds bounds = calculateProtectionBounds(pasteCorner, stats);
+
+        Location locMin = new Location(houseLocation.getWorld(), bounds.minX(), bounds.minY(), bounds.minZ());
+        Location locMax = new Location(houseLocation.getWorld(), bounds.maxX(), bounds.maxY(), bounds.maxZ());
+
+        boolean hasPermission = FlareCorePlugin.getAPI().getProtectionAPI().canBuild(player, locMin, locMax);
+
+        if (!hasPermission) {
+            player.sendMessage("§c🚧 Você não tem permissão para construir nesta área!");
+            player.sendMessage("§cVerifique se a obra não invade o terreno de outro jogador.");
+            return;
+        }
+
+        ConstructionProject project = projectRegistry.createProject(player.getUniqueId());
+
+        project.setWorksiteBounds(bounds);
+
+        List<Player> nearbyPlayers = player.getWorld().getNearbyPlayers(benchLocation, 60).stream().toList();
+
+        for (Player p : nearbyPlayers) {
+            project.getViewers().add(p.getUniqueId());
+        }
+
+        projectSpatialTracker.registerProject(project,
+                bounds.minX(),
+                bounds.minZ(),
+                bounds.maxX(),
+                bounds.maxZ()
+        );
+
+        player.sendMessage("§e[Debug] Terreno validado! Iniciando pipeline de construção...");
+
+        ConstructionContext context = new ConstructionContext(
+                data, benchLocation, houseLocation, pathFinderTarget, project, player
+        );
+
+        BuildOrchestrator orchestrator = new BuildOrchestrator(
+                FlareConstructorPlugin.getInstance(),
+                projectRegistry,
+                schematicLoader,
+                worksiteTracker
+        );
+
+        orchestrator.start(context);
+    }
+
+    private WorksiteBounds calculateProtectionBounds(Location pasteCorner, SchematicAnalyzer.SchematicStats stats) {
+        int buffer = 8;
+
+        int minX = pasteCorner.getBlockX() - buffer;
+        int maxX = pasteCorner.getBlockX() + stats.width() + buffer;
+
+        int minZ = pasteCorner.getBlockZ() - buffer;
+        int maxZ = pasteCorner.getBlockZ() + stats.length() + buffer;
+
+        int minY = pasteCorner.getBlockY() - buffer;
+        int maxY = pasteCorner.getBlockY() + stats.height() + buffer;
+
+        return new WorksiteBounds(minX, minY, minZ, maxX, maxY, maxZ);
     }
 
 }

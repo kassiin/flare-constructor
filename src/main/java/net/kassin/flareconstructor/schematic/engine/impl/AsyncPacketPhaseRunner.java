@@ -54,17 +54,14 @@ public class AsyncPacketPhaseRunner implements PhaseRunner {
 
             int end = Math.min(start + blocksPerStrike, allBlocks.size());
 
-            // Avança o índice instantaneamente na Main Thread (Garante que o próximo agente não pegue blocos repetidos)
             currentIndex[0] = end;
 
-            // Offload: Joga a carga de montar pacotes para a Thread Assíncrona
             CompletableFuture.runAsync(() -> {
                 PacketDispatcher.sendToViewers(
                         PacketDispatcher.buildSectionMap(allBlocks, start, end, session),
                         session.getViewers()
                 );
             }).thenRun(() -> {
-                // Volta para a Main Thread apenas para notificar a GUI e checar o fim
                 Bukkit.getScheduler().runTask(plugin, () -> {
                     BlockEntry lastBlock = allBlocks.get(end - 1);
                     session.registerPlaced(lastBlock);
@@ -82,4 +79,5 @@ public class AsyncPacketPhaseRunner implements PhaseRunner {
 
         return future;
     }
+
 }

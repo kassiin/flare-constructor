@@ -11,8 +11,13 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class SchematicAnalyzer {
 
-    // Record para guardar as duas informações juntas
-    public record SchematicStats(int totalBlocks, int baseBlocks) {}
+    public record SchematicStats(int totalBlocks, int baseBlocks, int width, int height, int length) {
+
+        public boolean validStats() {
+            return (totalBlocks + baseBlocks + width + height + length) > 1;
+        }
+
+    }
 
     private final FlareConstructorPlugin plugin;
     private final SchematicLoader loader;
@@ -35,27 +40,35 @@ public class SchematicAnalyzer {
             int total = 0;
             int base = 0;
 
-            int minY = clipboard.getMinimumPoint().y();
+            com.sk89q.worldedit.regions.Region region = clipboard.getRegion();
+            int minX = region.getMinimumPoint().x();
+            int maxX = region.getMaximumPoint().x();
+            int minZ = region.getMinimumPoint().z();
+            int maxZ = region.getMaximumPoint().z();
+            int minY = region.getMinimumPoint().y();
+            int maxY = region.getMaximumPoint().y();
 
-            for (BlockVector3 pt : clipboard.getRegion()) {
+            int width = maxX - minX;
+            int length = maxZ - minZ;
+            int height = maxY - minY;
+
+            for (BlockVector3 pt : region) {
                 if (!clipboard.getBlock(pt).getBlockType().getMaterial().isAir()) {
                     total++;
-
                     if (pt.y() == minY) {
                         base++;
                     }
-
                 }
             }
 
-            SchematicStats stats = new SchematicStats(total, base);
+            SchematicStats stats = new SchematicStats(total, base, width, height, length);
             statsCache.put(schematicId, stats);
             return stats;
 
         } catch (Exception e) {
             plugin.getLogger().warning("Falha ao analisar a schematic: " + schematicId);
             e.printStackTrace();
-            return new SchematicStats(1, 0);
+            return new SchematicStats(1, 0, 10, 10, 10); // Fallback
         }
     }
 

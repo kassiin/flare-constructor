@@ -15,7 +15,6 @@ public record WorksiteProtectionListener(WorksiteTracker worksiteTracker) implem
     @EventHandler
     public void onBlockBreak(BlockBreakEvent event) {
         if (worksiteTracker.isInsideActiveWorksite(event.getBlock().getLocation())) {
-
             if (event.getPlayer().hasPermission("flareconstructor.admin")) return;
 
             event.setCancelled(true);
@@ -50,6 +49,7 @@ public record WorksiteProtectionListener(WorksiteTracker worksiteTracker) implem
             Player player = event.getPlayer();
             player.sendActionBar(Component.text("§e🚧 Canteiro de Obras Ativo 🚧"));
         }
+
     }
 
 }

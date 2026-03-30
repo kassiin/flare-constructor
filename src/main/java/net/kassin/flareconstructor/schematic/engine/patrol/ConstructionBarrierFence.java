@@ -12,30 +12,10 @@ import org.bukkit.World;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Coloca e remove um "cerco" de barriers invisíveis ao redor da bounding box
- * real da construção, com altura suficiente para bloquear entidades.
- *
- * O cerco é colocado ANTES do PatrolStep iniciar e removido quando o build
- * termina (ou é cancelado). Como barriers têm colisão real, o pathfinder
- * os respeita nativamente — zero custo por tick.
- *
- * Custo de colocação: O(perimeter * height) blocos via FAWE, assíncrono.
- * Custo de remoção: idêntico.
- * Custo em tick: zero.
- */
 public class ConstructionBarrierFence {
 
-    /**
-     * Altura do cerco em blocos.
-     * 3 blocos garante que Pigs (altura 0.9) não pulem por cima.
-     */
     private static final int FENCE_HEIGHT = 3;
 
-    /**
-     * Distância do cerco em relação à bounding box real da build.
-     * 2 blocos = agentes andam nessa faixa sem encostar na construção.
-     */
     private static final int FENCE_OFFSET = 1;
 
     private final World world;
@@ -67,12 +47,6 @@ public class ConstructionBarrierFence {
         this.baseY = tmpBaseY;
     }
 
-    // ── API pública ───────────────────────────────────────────────────────────
-
-    /**
-     * Coloca as barriers. Deve ser chamado via thread FAWE (assíncrono).
-     * No PatrolStep, chame dentro de CompletableFuture.runAsync().
-     */
     public void place() {
         try (EditSession session = buildEditSession()) {
             forEachFenceBlock((x, y, z) ->
@@ -84,10 +58,6 @@ public class ConstructionBarrierFence {
         }
     }
 
-    /**
-     * Remove as barriers. Deve ser chamado quando o build termina ou é cancelado.
-     * Pode ser chamado via FAWE assíncrono ou no thread principal.
-     */
     public void remove() {
         try (EditSession session = buildEditSession()) {
             forEachFenceBlock((x, y, z) ->
@@ -99,12 +69,6 @@ public class ConstructionBarrierFence {
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    /**
-     * Itera sobre os 4 lados do perímetro (somente as bordas, não o interior).
-     * Evita preencher o interior — só o contorno externo em FENCE_HEIGHT camadas.
-     */
     private void forEachFenceBlock(BlockConsumer consumer) {
         for (int y = baseY; y < baseY + FENCE_HEIGHT; y++) {
             // Sul (minZ)
